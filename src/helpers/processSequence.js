@@ -14,38 +14,64 @@
  * Иногда промисы от API будут приходить в состояние rejected, (прямо как и API в реальной жизни)
  * Ответ будет приходить в поле {result}
  */
- import Api from '../tools/api';
+import { round, toNumber } from "lodash";
+import { allPass, andThen, compose, curry, flip, gt, ifElse, length, lt, otherwise, pipe, tap, test } from "ramda";
+import Api from "../tools/api";
 
- const api = new Api();
+const api = new Api();
 
- /**
-  * Я – пример, удали меня
-  */
- const wait = time => new Promise(resolve => {
-     setTimeout(resolve, time);
- })
+const lessThen = curry(flip(lt));
+const moreThen = curry(flip(gt));
+const isPositive = value => Number(value) >= 0;
+const checkLength = allPass([lessThen(10), moreThen(2)]);
+const toRounded = compose(round, toNumber);
+const validateValue = allPass([pipe(length, checkLength), isPositive, test(/^[0-9]*\.?[0-9]+$|^[0-9]+\.?[0-9]*$/)]);
 
- const processSequence = ({value, writeLog, handleSuccess, handleError}) => {
-     /**
-      * Я – пример, удали меня
-      */
-     writeLog(value);
+const getBinary = async number =>
+	(
+		await api.get("https://api.tech/numbers/base", {
+			from: 10,
+			to: 2,
+			number: toRounded(number),
+		})
+	).result;
 
-     api.get('https://api.tech/numbers/base', {from: 2, to: 10, number: '01011010101'}).then(({result}) => {
-         writeLog(result);
-     });
+const getAnimal = async remainder => (await api.get(`https://animals.tech/${remainder}`, {})).result;
 
-     wait(2500).then(() => {
-         writeLog('SecondLog')
+const processSequence = ({ value, writeLog, handleSuccess, handleError }) => {
+	const log = tap(writeLog);
+	const apiError = () => handleError("Api error");
+	const validationError = () => handleError("ValidationError");
 
-         return wait(1500);
-     }).then(() => {
-         writeLog('ThirdLog');
+	const processingPipeline = pipe(
+		log,
+		ifElse(
+			validateValue,
+			pipe(
+				toRounded,
+				log,
+				getBinary,
+				andThen(
+					pipe(
+						log,
+						length,
+						log,
+						len => Math.pow(len, 2),
+						log,
+						pow => pow % 3,
+						log,
+						getAnimal,
+						andThen(handleSuccess),
+						otherwise(apiError)
+					)
+				),
+				otherwise(apiError)
+			),
+			validationError
+		)
+	);
 
-         return wait(400);
-     }).then(() => {
-         handleSuccess('Done');
-     });
- }
+	processingPipeline(value);
+};
 
 export default processSequence;
